@@ -19,6 +19,7 @@ Manbalar va mualliflar `dist/credits.html` hamda `dist/assets/modern-flat/credit
 - Mebel, pol yoki devorni tanlab rang, material, dag‘allik va tekstura takrorini almashtirish.
 - Asl model materiallarini qaytarish.
 - O‘lcham, joylashuv va burilish; nusxalash, o‘chirish, oddiy yangi panel qo‘shish; 60 qadamni bekor qilish.
+- **Model qo‘shish**: yuqoridagi tugma orqali o‘z GLB, GLTF yoki OBJ modelingizni yuklash. OBJ uchun `.mtl` va tekstura fayllarini birga tanlang. Model haqiqiy o‘lchamda qo‘yiladi (o‘lchov birligi noma’lum bo‘lsa, eng katta tomoni 2,2 m ga keltiriladi), kamera unga qaratiladi va u boshqa qismlar kabi tanlanadi, o‘lchami, rangi va materiali o‘zgartiriladi. Umumiy hajm chegarasi 60 MB. Yuklangan modellar loyiha JSON fayliga kirmaydi: saqlangan faylni qayta ochganda ular blok sifatida qaytadi, modelni yana qo‘shish kerak.
 - JSON formatida saqlash va qayta ochish. Sahifani yangilashdan oldin loyihani saqlang. Yangi model fayllari formatning 2-versiyasidan foydalanadi.
 
 30 materialli katalogda fotografik va dasturiy teksturalar mavjud. Modelning o‘z teksturalari boshlang‘ich holatda saqlanadi. Materialni almashtirish tanlangan jihozning butun guruhiga ta’sir qiladi. Yangi qo‘shiladigan oddiy mebel blok shaklida; tayyor modeldagi mebellar batafsil geometriyaga ega. Yurish kamerasi devorlardan o‘ta oladi. Bu qurilish hisobi yoki CAD/BIM dasturi emas.
