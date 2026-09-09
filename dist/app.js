@@ -3,6 +3,7 @@ import {OrbitControls} from './vendor/OrbitControls.js';
 import {materials} from './catalog.js';
 import {realRooms as rooms,templates,loadRealHouse,makeRealObject} from './real-house.js';
 import {EffectComposer} from './vendor/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from './vendor/addons/postprocessing/RenderPass.js';
 import {SSAOPass} from './vendor/addons/postprocessing/SSAOPass.js';
 import {OutputPass} from './vendor/addons/postprocessing/OutputPass.js';
 import {RoomEnvironment} from './vendor/RoomEnvironment.js';
@@ -18,7 +19,7 @@ const grid=new THREE.GridHelper(30,30,0xb5c5cc,0xc6d2d7);grid.position.y=-.15;sc
 let initial;try{initial=await loadRealHouse((n,total)=>$('#loading').textContent=`Haqiqiy uy modeli yuklanmoqda… ${n}/${total}`)}catch(error){$('#loading').textContent='Uy modeli yuklanmadi. Sahifani yangilab ko‘ring.';throw error}$('#loading').remove();
 let objects=initial,selectedId=objects.find(o=>o.name==='Burchakli divan')?.id||objects[0].id,roomId='all',mode='orbit',showRoof=false,category='Barchasi',history=[],meshes=new Map(),yaw=0,pitch=0,drag=null;
 const group=new THREE.Group();scene.add(group);const outline=new THREE.BoxHelper(new THREE.Object3D(),0x149cc7);outline.material.depthTest=false;outline.renderOrder=10;scene.add(outline);
-const composer=new EffectComposer(renderer);const ao=new SSAOPass(scene,camera,512,512,16);ao.kernelRadius=.6;ao.minDistance=.001;ao.maxDistance=.12;composer.addPass(ao);composer.addPass(new OutputPass());
+const composer=new EffectComposer(renderer);composer.addPass(new RenderPass(scene,camera));const ao=new SSAOPass(scene,camera,512,512,16);ao.kernelRadius=.6;ao.minDistance=.001;ao.maxDistance=.12;composer.addPass(ao);composer.addPass(new OutputPass());
 const textures=new Map();
 const photos={oak:'1/modern-door-1/Wood_17.jpg',walnut:'11/black-and-wood-tv-stand-2/Wood_169.jpg',pine:'34/light-wood-base-sink/Wood_189.jpg',parquet:'217',laminate:'217',blackmarble:'11/black-and-wood-tv-stand-2/Marble_16.jpg',marble:'170/soap-dispenser-3/Marble_59.jpg',fabric:'93/classic-sectional-sofa/Fabric_796.jpg',carpet:'44/rug/e4r.jpg'};
 await Promise.all(Object.entries(photos).map(async([id,path])=>{const img=new Image();img.src='./assets/modern-flat/'+path;try{await img.decode();const c=document.createElement('canvas');c.width=c.height=512;c.getContext('2d').drawImage(img,0,0,512,512);textures.set(id,c)}catch{console.warn('Material rasmi yuklanmadi:',id)}}));
