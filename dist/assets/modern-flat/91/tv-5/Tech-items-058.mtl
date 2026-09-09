@@ -1,0 +1,31 @@
+# 3ds Max Wavefront OBJ Exporter v0.99 - (c)2007 guruware
+# File Created: 28.05.2025 18:12:40
+
+newmtl Screen
+	Kd 0.50 0.50 0.50
+	Ks 0.02 0.02 0.02
+	Tr 0.00
+	d 1.00
+	Tf 1.00 1.00 1.00
+	Pr 0.70
+	Pm 0.00
+	Pc 0.00
+	Pcr 0.00
+	Ni 1.70
+	Ke 0.00 0.00 0.00
+	illum 2
+	map_Kd -bm 0.00 Tech_23.jpg
+
+newmtl Base
+	Kd 0.02 0.01 0.00
+	Ks 1.00 1.00 1.00
+	Tr 0.00
+	d 1.00
+	Tf 1.00 1.00 1.00
+	Pr 0.35
+	Pm 1.00
+	Pc 0.00
+	Pcr 0.36
+	Ni 1.52
+	Ke 0.00 0.00 0.00
+	illum 2
