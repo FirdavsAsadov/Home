@@ -39,4 +39,3 @@ Chrome/Edge/Firefox/Safari’da WebGL qo‘llovi kerak. Internet bo‘lmasa ham 
 Ixtiyoriy WebMCP interfeysi: `read_home_design` va `set_home_material`; brauzer bu imkoniyatni qo‘llamasa muharrir odatdagidek ishlaydi.
 
 Three.js litsenziyasi: `dist/vendor/LICENSE`.
-

@@ -1,0 +1,17 @@
+{
+  "name": "uy-studio-3d",
+  "version": "1.0.0",
+  "description": "Interactive 3D home material and room designer",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.cjs",
+    "check": "node --check dist/app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}
