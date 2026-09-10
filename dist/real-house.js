@@ -30,17 +30,83 @@ export async function loadRealHouse(progress){const data=await fetch(base+'house
  // Polygon floors retain the architect's actual room outlines and texture scale.
  data.rooms.forEach((r,i)=>{const pts=r.children.filter(c=>c.tag==='point').map(p=>new THREE.Vector2(Number(p.x)/100-cx,-(Number(p.y)/100-cz)));const shape=new THREE.Shape(pts),geo=new THREE.ShapeGeometry(shape);geo.rotateX(-Math.PI/2);geo.computeBoundingBox();const box=geo.boundingBox.clone(),center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());geo.translate(-center.x,0,-center.z);const texture=r.children.find(c=>c.tag==='texture'&&c.attribute==='floorTexture');let map=null;if(texture){map=textureLoader.load(base+texture.image);map.colorSpace=THREE.SRGBColorSpace;map.wrapS=map.wrapT=THREE.RepeatWrapping;const scale=Number(texture.scale||1);map.repeat.set(1/(Number(texture.width)/100*scale),1/(Number(texture.height)/100*scale));map.rotation=-Number(texture.angle||0)}const mat=new THREE.MeshStandardMaterial({color:r.floorColor?'#'+r.floorColor.slice(-6):'#ffffff',map,roughness:.62,side:THREE.DoubleSide});const floor=new THREE.Mesh(geo,mat);floor.scale.set(1/size.x,1,1/size.z);const source='floor:'+i;templates.set(source,floor);objects.push(standardObject(source,'Pol · '+(i+1),roomFor(center.x,center.z),[size.x,.05,size.z],[center.x,.015,center.z],source));const ceilingSource='ceiling:'+i;templates.set(ceilingSource,new THREE.Mesh(geo.clone(),new THREE.MeshStandardMaterial({color:'#f2f0ec',roughness:.9,side:THREE.DoubleSide})));templates.get(ceilingSource).scale.set(1/size.x,1,1/size.z);objects.push(standardObject(ceilingSource,'Shift · '+(i+1),roomFor(center.x,center.z),[size.x,.05,size.z],[center.x,2.5,center.z],ceilingSource,{roof:true}));});
  const tub=normalise((await loadObj('../bathtub/corner_bathtub.obj')).clone(true));templates.set('asset:bathtub',tub);objects.push(standardObject('bathtub','Burchakli vanna','bath',[1.25,.64,1.25],[-.75,.35,3.22],'asset:bathtub',{rotation:180}));
- const openings=data.furniture.filter(f=>f.tag==='doorOrWindow');let wi=0;
- // Har bir eshik/deraza aynan bitta — eng yaqin — devorga biriktiriladi.
- // Ilgari masofa chegarasi qat'iy edi va markazi devor tekisligidan siljigan eshiklar devorni kesmay qolardi.
- const wallLines=data.walls.map(w=>{const ax=Number(w.xStart)/100-cx,az=Number(w.yStart)/100-cz,bx=Number(w.xEnd)/100-cx,bz=Number(w.yEnd)/100-cz,len=Math.hypot(bx-ax,bz-az);return {ax,az,len,dx:(bx-ax)/len,dz:(bz-az)/len}});
- const ownerWall=new Map();
- for(const f of openings){const x=Number(f.x)/100-cx,z=Number(f.y)/100-cz;let best=-1,bestD=Infinity;
-  wallLines.forEach((g,i)=>{const t=(x-g.ax)*g.dx+(z-g.az)*g.dz;if(t<-.05||t>g.len+.05)return;const d=Math.abs((x-g.ax)*g.dz-(z-g.az)*g.dx);if(d<bestD){bestD=d;best=i}});
-  if(best>=0&&bestD<=Math.max(.4,Number(f.depth)/200+.15))ownerWall.set(f,best);}
- for(const [wallIndex,w] of data.walls.entries()){const ax=Number(w.xStart)/100-cx,az=Number(w.yStart)/100-cz,bx=Number(w.xEnd)/100-cx,bz=Number(w.yEnd)/100-cz,len=Math.hypot(bx-ax,bz-az),dx=(bx-ax)/len,dz=(bz-az)/len,height=Number(w.height||250)/100,thick=Number(w.thickness)/100;const cuts=[];
- for(const f of openings){if(ownerWall.get(f)!==wallIndex)continue;const x=Number(f.x)/100-cx,z=Number(f.y)/100-cz,t=(x-ax)*dx+(z-az)*dz;const half=Number(f.width)/200;cuts.push({a:Math.max(0,t-half),b:Math.min(len,t+half),low:Number(f.elevation||0)/100,high:Math.min(height,(Number(f.elevation||0)+Number(f.height))/100)})}
- const boundaries=[...new Set([0,len,...cuts.flatMap(c=>[c.a,c.b])])].sort((a,b)=>a-b);const addWall=(start,end,low,high)=>{if(end-start<.01||high-low<.01)return;const id='wall:'+wi++,mid=(start+end)/2,x=ax+dx*mid,z=az+dz*mid;const color='#'+(w.leftSideColor||w.rightSideColor||'FFF0EDE6').slice(-6);objects.push(standardObject(id,'Devor · '+wi,roomFor(x,z),[end-start,high-low,thick],[x,(low+high)/2,z],null,{original:false,color,rotation:-Math.atan2(dz,dx)*180/Math.PI}));};for(let i=0;i<boundaries.length-1;i++){const a=boundaries[i],b=boundaries[i+1],opening=cuts.find(c=>(a+b)/2>=c.a&&(a+b)/2<=c.b);if(opening){addWall(a,b,0,opening.low);addWall(a,b,opening.high,height)}else addWall(a,b,0,height)}}
+ const openings=data.furniture.filter(f=>f.tag==='doorOrWindow');
+ plan.nodes.length=0;plan.edges.length=0;plan.openings.length=0;
+ for(const w of data.walls){
+  const a=nodeAt(Number(w.xStart)/100-cx,Number(w.yStart)/100-cz),b=nodeAt(Number(w.xEnd)/100-cx,Number(w.yEnd)/100-cz);
+  plan.edges.push({a,b,thickness:Number(w.thickness)/100,height:Number(w.height||250)/100,color:'#'+(w.leftSideColor||w.rightSideColor||'FFF0EDE6').slice(-6)});
+ }
+ // Har bir eshik/deraza eng yaqin devorga biriktiriladi va shu devor bo'ylab (t, perp) sifatida saqlanadi,
+ // shuning uchun devor ko'chirilganda u ham birga ko'chadi.
+ for(const f of openings){
+  const x=Number(f.x)/100-cx,z=Number(f.y)/100-cz;let best=-1,bestD=Infinity,bestT=0,bestP=0;
+  plan.edges.forEach((e,i)=>{const g=edgeGeom(e),t=(x-g.ax)*g.dx+(z-g.az)*g.dz;if(t<-.05||t>g.len+.05)return;
+   const sgn=(x-g.ax)*g.dz-(z-g.az)*g.dx;if(Math.abs(sgn)<bestD){bestD=Math.abs(sgn);best=i;bestT=t;bestP=sgn}});
+  if(best<0||bestD>Math.max(.4,Number(f.depth)/200+.15))continue;
+  const g=edgeGeom(plan.edges[best]);
+  plan.openings.push({id:f.id,edge:best,t:bestT,perp:bestP,
+   angleOffset:(-Number(f.angle||0)*180/Math.PI)-(-Math.atan2(g.dz,g.dx)*180/Math.PI),
+   width:Number(f.width)/100,height:Number(f.height)/100,elevation:Number(f.elevation||0)/100});
+ }
+ objects.push(...buildWalls());
  return objects;
 }
 export function makeRealObject(o,materialFor){if(!o.source)return null;const template=templates.get(o.source);if(!template)throw Error('Model manbasi topilmadi');const model=template.clone(true),outer=new THREE.Group();outer.add(model);outer.scale.set(...o.size);outer.position.set(...o.pos);outer.rotation.y=o.rotation*Math.PI/180;outer.traverse(n=>{n.userData.id=o.id;if(!n.isMesh)return;n.castShadow=!o.roof&&Math.max(o.size[0],o.size[1],o.size[2])>=.28;n.receiveShadow=true;n.material=Array.isArray(n.material)?n.material.map(m=>m.clone()):n.material.clone();if(!o.original){const mats=Array.isArray(n.material)?n.material:[n.material];for(const m of mats)m.dispose();n.material=materialFor(o)}if(o.original&&o.repeat!==1){for(const m of Array.isArray(n.material)?n.material:[n.material]){if(m.map){m.map=m.map.clone();m.map.repeat.multiplyScalar(o.repeat);m.map.wrapS=m.map.wrapT=THREE.RepeatWrapping;m.userData.ownedMap=true}}}if(o.original&&o.roughnessOverride){for(const m of Array.isArray(n.material)?n.material:[n.material])m.roughness=o.roughness}if(o.original&&o.tint){const mats=Array.isArray(n.material)?n.material:[n.material];for(const m of mats)m.color.multiply(new THREE.Color(o.color))}});outer.visible=!o.roof;return outer}
+
+// ——— Uy rejasi: tugun + qirra grafi ———
+// Devorlar mustaqil qutilar emas, umumiy burchak tugunlariga ulangan qirralar.
+// Bitta devorni ko'chirsangiz, unga ulangan devorlar cho'ziladi va burchakda teshik qolmaydi.
+export const plan={nodes:[],edges:[],openings:[]};
+
+function nodeAt(x,z){
+ const k=plan.nodes.findIndex(n=>Math.abs(n.x-x)<.04&&Math.abs(n.z-z)<.04);
+ if(k>=0)return k;
+ plan.nodes.push({x,z});return plan.nodes.length-1;
+}
+export function edgeGeom(e){const A=plan.nodes[e.a],B=plan.nodes[e.b];
+ const len=Math.hypot(B.x-A.x,B.z-A.z)||1e-6;
+ return {ax:A.x,az:A.z,bx:B.x,bz:B.z,len,dx:(B.x-A.x)/len,dz:(B.z-A.z)/len};}
+
+// Grafdan devor qutilarini qayta yasaydi. keep — avvalgi material/rangni saqlash uchun (qirra raqami bo'yicha).
+export function buildWalls(keep=new Map()){
+ const out=[];
+ plan.edges.forEach((e,ei)=>{
+  if(e.removed)return;
+  const g=edgeGeom(e),{ax,az,len,dx,dz}=g,height=e.height,thick=e.thickness;
+  const cuts=plan.openings.filter(o=>o.edge===ei).map(o=>({a:Math.max(0,o.t-o.width/2),b:Math.min(len,o.t+o.width/2),low:o.elevation,high:Math.min(height,o.elevation+o.height)}));
+  const bounds=[...new Set([0,len,...cuts.flatMap(c=>[c.a,c.b])])].sort((a,b)=>a-b);
+  const prev=keep.get(ei)||{};let k=0;
+  const add=(start,end,low,high)=>{
+   if(end-start<.01||high-low<.01)return;
+   const id='wall:'+ei+':'+k,mid=(start+end)/2,x=ax+dx*mid,z=az+dz*mid;k++;
+   out.push(standardObject(id,'Devor · '+(ei+1)+(k>1?'/'+k:''),roomFor(x,z),[end-start,high-low,thick],[x,(low+high)/2,z],null,
+    {original:false,color:prev.color||e.color,material:prev.material||'paint',roughness:prev.roughness??.75,repeat:prev.repeat??1,
+     rotation:-Math.atan2(dz,dx)*180/Math.PI,wall:ei}));
+  };
+  for(let i=0;i<bounds.length-1;i++){const a=bounds[i],b=bounds[i+1],op=cuts.find(c=>(a+b)/2>=c.a&&(a+b)/2<=c.b);
+   if(op){add(a,b,0,op.low);add(a,b,op.high,height)}else add(a,b,0,height)}
+ });
+ return out;
+}
+
+// Eshik va derazalarni o'z devori bo'ylab joyiga qo'yadi.
+export function placeOpenings(objects){
+ const byId=new Map(objects.map(o=>[o.id,o]));
+ for(const op of plan.openings){
+  const e=plan.edges[op.edge];if(!e||e.removed)continue;
+  const o=byId.get(op.id);if(!o)continue;
+  const g=edgeGeom(e);
+  o.pos[0]=g.ax+g.dx*op.t+op.perp*g.dz;
+  o.pos[2]=g.az+g.dz*op.t-op.perp*g.dx;
+  o.rotation=(-Math.atan2(g.dz,g.dx)*180/Math.PI)+op.angleOffset;
+ }
+}
+
+// Devorni normal yo'nalishi bo'yicha ko'chirish: ikkala tuguni ham siljiydi,
+// shu tugunlarga ulangan boshqa devorlar avtomatik cho'ziladi.
+export function moveWall(ei,dist){
+ const e=plan.edges[ei];if(!e)return;
+ const g=edgeGeom(e),nx=g.dz,nz=-g.dx;
+ for(const n of new Set([e.a,e.b])){plan.nodes[n].x+=nx*dist;plan.nodes[n].z+=nz*dist}
+}
+export function removeWall(ei){const e=plan.edges[ei];if(e)e.removed=true}

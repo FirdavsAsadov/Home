@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {materials} from './catalog.js';
-import {realRooms as rooms,templates,loadRealHouse,makeRealObject,normalise} from './real-house.js';
+import {realRooms as rooms,templates,loadRealHouse,makeRealObject,normalise,plan,edgeGeom,buildWalls,placeOpenings,removeWall} from './real-house.js';
 import {parseModelFiles,metreSize} from './import-model.js';
 import {buildColliders,resolveMove,findFree} from './physics.js';
 import {EffectComposer} from './vendor/addons/postprocessing/EffectComposer.js';
@@ -53,10 +53,25 @@ function sceneChanged(){shadowDirty=true;colliders=buildColliders(objects,o=>o.k
 function rebuild(){for(const item of meshes.values())disposeMesh(item);group.clear();meshes.clear();for(const o of objects){const mesh=buildMesh(o);group.add(mesh);meshes.set(o.id,mesh)}sceneChanged();updateOutline();renderObjectList();syncInspector();}
 // Bitta qism o‘zgarganda 204 ta obyektni qayta qurmaymiz.
 function updateOne(id){const o=objects.find(x=>x.id===id);if(!o){rebuild();return}const old=meshes.get(id);if(old){group.remove(old);disposeMesh(old)}const mesh=buildMesh(o);group.add(mesh);meshes.set(id,mesh);sceneChanged();updateOutline();syncInspector();}
+// Devor grafi o‘zgargach faqat devor va teshiklarni qayta quradi, 204 ta qismni emas.
+function applyPlan(light=false){
+ const keep=new Map();
+ for(const o of objects)if(o.wall!==undefined&&!keep.has(o.wall))keep.set(o.wall,{color:o.color,material:o.material,roughness:o.roughness,repeat:o.repeat});
+ const walls=buildWalls(keep),oldIds=objects.filter(o=>o.wall!==undefined).map(o=>o.id);
+ objects=objects.filter(o=>o.wall===undefined).concat(walls);
+ placeOpenings(objects);
+ for(const id of oldIds){const m=meshes.get(id);if(m){group.remove(m);disposeMesh(m);meshes.delete(id)}}
+ for(const w of walls){const m=buildMesh(w);group.add(m);meshes.set(w.id,m)}
+ for(const op of plan.openings){const o=objects.find(x=>x.id===op.id),m=o&&meshes.get(o.id);if(m){m.position.set(...o.pos);m.rotation.y=o.rotation*Math.PI/180}}
+ if(!meshes.has(selectedId))selectedId=(walls[0]||objects[0]).id;
+ sceneChanged();updateOutline();
+ if(!light){renderObjectList();syncInspector()}
+}
 
 const selected=()=>objects.find(o=>o.id===selectedId);
 function updateOutline(){const mesh=meshes.get(selectedId);outline.visible=!!mesh?.visible;if(outline.visible)outline.setFromObject(mesh);dirty=true}
-function remember(){history.push(JSON.stringify(objects));if(history.length>60)history.shift();$('#undo').disabled=false}
+// Tarixga qismlar ham, devor grafi ham kiradi — aks holda devorni bekor qilib bo‘lmaydi.
+function remember(){history.push(JSON.stringify({o:objects,p:plan}));if(history.length>60)history.shift();$('#undo').disabled=false}
 function status(s){$('#status').textContent=s}
 function select(id){if(!meshes.has(id))return;selectedId=id;const o=selected();if(o.roof&&!showRoof){showRoof=true;updateRoof()}updateOutline();syncInspector();$('#object-list').value=id;status(o.name+' tanlandi')}
 function change(patch){remember();Object.assign(selected(),patch);updateOne(selectedId);status('O‘zgarish qo‘llandi')}
@@ -69,7 +84,7 @@ $('#material-count').textContent=materials.length;const restore=document.createE
 for(const name of ['Barchasi',...new Set(materials.map(m=>m.category))]){const b=document.createElement('button');b.textContent=name;b.className=name===category?'active':'';b.onclick=()=>{category=name;for(const n of $('#categories').children)n.classList.toggle('active',n===b);renderMaterials()};$('#categories').append(b)}
 for(const r of rooms){const b=document.createElement('button');b.className=r.id==='all'?'active':'';const icon=document.createElement('span');icon.className='room-icon';icon.textContent=r.icon;const label=document.createElement('span');label.textContent=r.name;const area=document.createElement('span');area.className='room-area';area.textContent=r.area;label.append(area);b.append(icon,label);b.dataset.room=r.id;b.onclick=()=>goRoom(r.id);$('#rooms').append(b)}
 function goRoom(id){const r=rooms.find(r=>r.id===id);roomId=id;$('#room-name').textContent=r.name;for(const b of $('#rooms').children)b.classList.toggle('active',b.dataset.room===id);const [x,z]=r.center;if(mode==='walk'){const [fx,fz]=collisionOn?findFree(colliders,x,z,BODY):[x,z];camera.position.set(fx,1.65,fz);yaw=id==='bath'?Math.PI:0;pitch=-.06;look()}else{controls.target.set(x,0,z);camera.position.set(x+(id==='all'?14:5),id==='all'?14:8,z+(id==='all'?18:7));if(mode==='plan')camera.position.set(x,24,z+.01);controls.update()}status(r.name+' ko‘rinishi')}
-function setMode(next){mode=next;controls.enabled=mode!=='walk';grid.visible=mode!=='walk';for(const id of ['orbit','walk','plan'])$('#'+id).classList.toggle('active',id===mode);$('.walk-pad').hidden=mode!=='walk';$('#hint').textContent=mode==='walk'?'Scroll / W A S D — yurish · Sudrang — atrofga qarash · Bosing — tanlash':'Sudrang — aylantirish · Scroll — yaqinlashish · Bosing — tanlash';goRoom(roomId);viewport.focus()}
+function setMode(next){mode=next;controls.enabled=mode!=='walk';grid.visible=mode!=='walk';for(const id of ['orbit','walk','plan'])$('#'+id).classList.toggle('active',id===mode);$('.walk-pad').hidden=mode!=='walk';$('#hint').textContent=mode==='walk'?'Scroll / W A S D — yurish · Sudrang — atrofga qarash · Eshikni bosing — ochiladi':'Bosing — tanlash · Tanlanganini sudrang — ko‘chadi · Devor o‘z yo‘nalishida siljiydi';goRoom(roomId);viewport.focus()}
 function look(){camera.rotation.order='YXZ';camera.rotation.set(pitch,yaw,0);dirty=true}
 const BODY=.22;// odam radiusi
 function move(forward=0,side=0){const nx=camera.position.x+(-Math.sin(yaw)*forward+Math.cos(yaw)*side),nz=camera.position.z+(-Math.cos(yaw)*forward-Math.sin(yaw)*side);
@@ -79,9 +94,67 @@ function move(forward=0,side=0){const nx=camera.position.x+(-Math.sin(yaw)*forwa
 const keys=new Set();viewport.addEventListener('keydown',e=>{if(['w','a','s','d','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();keys.add(e.key)}});window.addEventListener('keyup',e=>keys.delete(e.key));window.addEventListener('blur',()=>keys.clear());viewport.addEventListener('blur',()=>keys.clear());
 for(const b of document.querySelectorAll('[data-move]')){b.onclick=()=>{const v={forward:[.45,0],back:[-.45,0],left:[0,-.45],right:[0,.45]}[b.dataset.move];move(...v)}}
 viewport.addEventListener('wheel',e=>{if(mode==='walk'){e.preventDefault();move(Math.sign(e.deltaY)*.4)}},{passive:false});
-const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();viewport.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY};viewport.focus()});viewport.addEventListener('pointermove',e=>{if(!drag)return;if(mode==='walk'){yaw-=(e.clientX-drag.lastX)*.005;pitch=THREE.MathUtils.clamp(pitch-(e.clientY-drag.lastY)*.004,-1.25,1.25);look()}drag.lastX=e.clientX;drag.lastY=e.clientY});
-viewport.addEventListener('pointerup',e=>{if(drag&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<6){const rect=viewport.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects([...meshes.values()].filter(m=>m.visible),true)[0];if(hit){const id=hit.object.userData.id,o=objects.find(x=>x.id===id);
-  if(o&&o.kind==='door'&&!doorAnim&&(mode==='walk'||id===selectedId))toggleDoor(o);else select(id)}}drag=null});viewport.addEventListener('pointerleave',()=>drag=null);viewport.addEventListener('pointercancel',()=>drag=null);
+const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
+const floorPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0),hitPoint=new THREE.Vector3();
+let moveDrag=null;
+function setPointer(e){const rect=viewport.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera)}
+function pickObject(e){setPointer(e);return ray.intersectObjects([...meshes.values()].filter(m=>m.visible),true)[0]}
+function floorAt(e,y){setPointer(e);floorPlane.constant=-y;return ray.ray.intersectPlane(floorPlane,hitPoint)?hitPoint.clone():null}
+// Tanlangan qismni sudrash: devor bo‘lsa — o‘z normali bo‘ylab, mebel bo‘lsa — pol bo‘ylab.
+function startMove(e,o){
+ const p=floorAt(e,o.pos[1]);if(!p)return false;
+ if(o.wall!==undefined){const g=edgeGeom(plan.edges[o.wall]);
+  moveDrag={kind:'wall',edge:o.wall,start:p,nx:g.dz,nz:-g.dx,
+   origA:{...plan.nodes[plan.edges[o.wall].a]},origB:{...plan.nodes[plan.edges[o.wall].b]},moved:false};
+ }else moveDrag={kind:'part',id:o.id,start:p,orig:[...o.pos],rot:o.rotation,moved:false};
+ controls.enabled=false;return true;
+}
+function dragTo(e){
+ const o=moveDrag.kind==='wall'?null:objects.find(x=>x.id===moveDrag.id);
+ const p=floorAt(e,moveDrag.kind==='wall'?0:moveDrag.orig[1]);if(!p)return;
+ const dx=p.x-moveDrag.start.x,dz=p.z-moveDrag.start.z;
+ if(!moveDrag.moved){if(Math.hypot(dx,dz)<.04)return;remember();moveDrag.moved=true}
+ if(moveDrag.kind==='wall'){
+  const dist=Math.round((dx*moveDrag.nx+dz*moveDrag.nz)/.05)*.05;   // normal bo‘yicha, 5 sm qadam
+  const e2=plan.edges[moveDrag.edge];
+  plan.nodes[e2.a].x=moveDrag.origA.x+moveDrag.nx*dist;plan.nodes[e2.a].z=moveDrag.origA.z+moveDrag.nz*dist;
+  plan.nodes[e2.b].x=moveDrag.origB.x+moveDrag.nx*dist;plan.nodes[e2.b].z=moveDrag.origB.z+moveDrag.nz*dist;
+  applyPlan(true);status('Devor '+(dist>=0?'+':'')+dist.toFixed(2)+' m ko‘chdi');return;
+ }
+ const snapped=snapToWall(o,moveDrag.orig[0]+dx,moveDrag.orig[2]+dz);
+ o.pos[0]=snapped.x;o.pos[2]=snapped.z;o.rotation=snapped.rotation;
+ const m=meshes.get(o.id);if(m){m.position.set(...o.pos);m.rotation.y=o.rotation*Math.PI/180}
+ updateOutline();status(snapped.onWall?'Devorga yopishtirildi':'X '+o.pos[0].toFixed(2)+' · Z '+o.pos[2].toFixed(2));
+}
+// Mebel devorga yaqin bo‘lsa, orqasi bilan devorga tegib turadi va devor yo‘nalishi bo‘yicha buriladi.
+function snapToWall(o,x,z){
+ const depth=o.size[2],half=o.size[0]/2;let best=null;
+ plan.edges.forEach((edge,i)=>{
+  if(edge.removed)return;
+  const g=edgeGeom(edge),t=(x-g.ax)*g.dx+(z-g.az)*g.dz;
+  if(t<-half||t>g.len+half)return;
+  const sgn=(x-g.ax)*g.dz-(z-g.az)*g.dx,gap=Math.abs(sgn)-(edge.thickness/2+depth/2);
+  if(gap>.45||gap<-.5)return;
+  if(!best||Math.abs(gap)<Math.abs(best.gap))best={g,edge,t,sgn,gap};
+ });
+ if(!best)return {x:Math.round(x/.05)*.05,z:Math.round(z/.05)*.05,rotation:o.rotation,onWall:false};
+ const {g,edge}=best,side=best.sgn<0?-1:1,off=side*(edge.thickness/2+depth/2);
+ const t=THREE.MathUtils.clamp(best.t,half,Math.max(half,g.len-half));
+ return {x:g.ax+g.dx*t+off*g.dz,z:g.az+g.dz*t-off*g.dx,
+  rotation:Math.atan2(side*g.dz,-side*g.dx)*180/Math.PI,onWall:true};
+}
+viewport.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY};viewport.focus();
+ if(mode!=='walk'){const hit=pickObject(e);const o=hit&&objects.find(x=>x.id===hit.object.userData.id);
+  if(o&&o.id===selectedId&&!o.roof)startMove(e,o)}});
+viewport.addEventListener('pointermove',e=>{if(!drag)return;
+ if(moveDrag){dragTo(e);drag.lastX=e.clientX;drag.lastY=e.clientY;return}
+ if(mode==='walk'){yaw-=(e.clientX-drag.lastX)*.005;pitch=THREE.MathUtils.clamp(pitch-(e.clientY-drag.lastY)*.004,-1.25,1.25);look()}drag.lastX=e.clientX;drag.lastY=e.clientY});
+viewport.addEventListener('pointerup',e=>{
+ if(moveDrag){const moved=moveDrag.moved,wall=moveDrag.kind==='wall';moveDrag=null;controls.enabled=mode!=='walk';
+  if(moved){if(wall)applyPlan();else{sceneChanged();syncInspector()}status(wall?'Devor ko‘chirildi':'Qism ko‘chirildi');drag=null;return}}
+ if(drag&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<6){const rect=viewport.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects([...meshes.values()].filter(m=>m.visible),true)[0];if(hit){const id=hit.object.userData.id,o=objects.find(x=>x.id===id);
+  if(o&&o.kind==='door'&&!doorAnim&&(mode==='walk'||id===selectedId))toggleDoor(o);else select(id)}}drag=null});const endDrag=()=>{if(moveDrag){moveDrag=null;controls.enabled=mode!=='walk'}drag=null};
+viewport.addEventListener('pointerleave',endDrag);viewport.addEventListener('pointercancel',endDrag);
 const DOOR_SWING=80;
 function doorBaseOf(o){if(!doorBase.has(o.id))doorBase.set(o.id,{pos:[...o.pos],rotation:o.rotation});return doorBase.get(o.id)}
 // Eshik o‘z markazi atrofida emas, petlya (ilmoq) qirrasi atrofida buriladi.
@@ -105,11 +178,18 @@ $('#collide').onclick=()=>{collisionOn=!collisionOn;$('#collide').textContent=co
 $('#object-list').onchange=e=>select(e.target.value);$('#search').oninput=renderMaterials;$('#color').onchange=e=>change({color:e.target.value,tint:true});$('#roughness').onchange=e=>change({roughness:Number(e.target.value),roughnessOverride:true});$('#texture-scale').onchange=e=>change({repeat:Number(e.target.value)});
 for(const [i,k]of ['sx','sy','sz'].entries())$('#'+k).onchange=e=>{const v=Number(e.target.value);if(!Number.isFinite(v)||v<.05||v>Number(e.target.max)){syncInspector();return}const size=[...selected().size];size[i]=v;change({size})};
 for(const [i,k]of ['px','py','pz'].entries())$('#'+k).onchange=e=>{const v=Number(e.target.value);if(!Number.isFinite(v)||v<Number(e.target.min)||v>Number(e.target.max)){syncInspector();return}const pos=[...selected().pos];pos[i]=v;change({pos})};$('#rotation').onchange=e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&Math.abs(v)<=360)change({rotation:v});else syncInspector()};
-$('#undo').onclick=()=>{if(!history.length)return;objects=JSON.parse(history.pop());if(!objects.some(o=>o.id===selectedId))selectedId=objects[0].id;rebuild();status('Oxirgi o‘zgarish bekor qilindi')};
-$('#duplicate').onclick=()=>{remember();const o=structuredClone(selected());o.id=crypto.randomUUID();o.name+=' nusxa';o.pos[0]+=.4;objects.push(o);selectedId=o.id;rebuild();status('Qism nusxalandi')};$('#delete').onclick=()=>{if(objects.length<=1)return;remember();objects=objects.filter(o=>o.id!==selectedId);selectedId=objects[0].id;rebuild();status('Qism o‘chirildi. Bekor qilish orqali qaytarish mumkin.')};
+$('#undo').onclick=()=>{if(!history.length)return;const st=JSON.parse(history.pop());objects=st.o;plan.nodes=st.p.nodes;plan.edges=st.p.edges;plan.openings=st.p.openings;
+ if(!objects.some(o=>o.id===selectedId))selectedId=objects[0].id;rebuild();status('Oxirgi o‘zgarish bekor qilindi')};
+$('#duplicate').onclick=()=>{remember();const o=structuredClone(selected());o.id=crypto.randomUUID();delete o.wall;/* nusxa mustaqil qism bo‘ladi, grafga bog‘lanmaydi */o.name+=' nusxa';o.pos[0]+=.4;objects.push(o);selectedId=o.id;rebuild();status('Qism nusxalandi')};$('#delete').onclick=()=>{if(objects.length<=1)return;const o=selected();remember();
+ if(o&&o.wall!==undefined){// butun devor va undagi eshik/derazalar olib tashlanadi
+  const gone=new Set(plan.openings.filter(x=>x.edge===o.wall).map(x=>x.id));
+  plan.openings=plan.openings.filter(x=>x.edge!==o.wall);removeWall(o.wall);
+  objects=objects.filter(x=>!gone.has(x.id));applyPlan();
+  selectedId=objects[0].id;rebuild();status('Devor buzildi. Bekor qilish orqali qaytariladi.');return}
+ objects=objects.filter(x=>x.id!==selectedId);selectedId=objects[0].id;rebuild();status('Qism o‘chirildi. Bekor qilish orqali qaytarish mumkin.')};
 $('#add').onclick=()=>{remember();const type=$('#add-type').value,[x,z]=rooms.find(r=>r.id===roomId).center,m=materials[0];const o={id:crypto.randomUUID(),name:type==='wall'?'Yangi devor':type==='floor'?'Yangi panel':'Yangi mebel',room:roomId==='all'?'living':roomId,size:type==='wall'?[2,3,.15]:type==='floor'?[2,.15,2]:[1,1,1],pos:[x,type==='wall'?1.5:type==='floor'?.05:.6,z],material:m.id,color:m.color,roughness:m.roughness,repeat:3,rotation:0};objects.push(o);selectedId=o.id;rebuild()};
-$('#save').onclick=()=>{const imported=objects.filter(o=>o.source?.startsWith('import:')).length,saved=objects.map(o=>o.source?.startsWith('import:')?{...o,source:null,original:false}:o);const blob=new Blob([JSON.stringify({format:'uy-studio',version:2,model:'modern-flat',objects:saved},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='mening-uyim.uy.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status(imported?`Loyiha saqlandi. ${imported} ta yuklangan model blok sifatida saqlandi — qayta ochgach modelni yana qo‘shing.`:'Loyiha faylga saqlandi')};
-function validProject(data){if(data?.format!=='uy-studio'||data.version!==2||data.model!=='modern-flat'||!Array.isArray(data.objects)||!data.objects.length||data.objects.length>1500)throw Error('Loyiha formati noto‘g‘ri (1–1500 qism kerak).');const ids=new Set();return data.objects.map(o=>{if(typeof o.id!=='string'||ids.has(o.id)||typeof o.name!=='string'||o.name.length>100||!rooms.some(r=>r.id===o.room)||!materials.some(m=>m.id===o.material)||!/^#[0-9a-f]{6}$/i.test(o.color)||!Array.isArray(o.size)||o.size.length!==3||o.size.some(v=>!Number.isFinite(v)||v<.001||v>30)||!Array.isArray(o.pos)||o.pos.length!==3||o.pos.some(v=>!Number.isFinite(v)||Math.abs(v)>30)||!Number.isFinite(o.rotation)||Math.abs(o.rotation)>360||!Number.isFinite(o.roughness)||o.roughness<0||o.roughness>1||!Number.isFinite(o.repeat)||o.repeat<1||o.repeat>12)throw Error('Loyihada yaroqsiz qiymat bor.');if(o.source&&!templates.has(o.source))throw Error('Noma’lum model qismi');ids.add(o.id);return {source:o.source||null,original:!!o.original,tint:!!o.tint,roughnessOverride:!!o.roughnessOverride,id:o.id,name:o.name,room:o.room,size:[...o.size],pos:[...o.pos],material:o.material,color:o.color,roughness:o.roughness,repeat:o.repeat,rotation:o.rotation,roof:!!o.roof,kind:o.kind==='door'||o.kind==='window'?o.kind:null,open:!!o.open}})}
+$('#save').onclick=()=>{const imported=objects.filter(o=>o.source?.startsWith('import:')).length,saved=objects.map(o=>o.source?.startsWith('import:')?{...o,source:null,original:false}:o);const blob=new Blob([JSON.stringify({format:'uy-studio',version:2,model:'modern-flat',plan,objects:saved},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='mening-uyim.uy.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status(imported?`Loyiha saqlandi. ${imported} ta yuklangan model blok sifatida saqlandi — qayta ochgach modelni yana qo‘shing.`:'Loyiha faylga saqlandi')};
+function validProject(data){if(data?.format!=='uy-studio'||data.version!==2||data.model!=='modern-flat'||!Array.isArray(data.objects)||!data.objects.length||data.objects.length>1500)throw Error('Loyiha formati noto‘g‘ri (1–1500 qism kerak).');const ids=new Set();return data.objects.map(o=>{if(typeof o.id!=='string'||ids.has(o.id)||typeof o.name!=='string'||o.name.length>100||!rooms.some(r=>r.id===o.room)||!materials.some(m=>m.id===o.material)||!/^#[0-9a-f]{6}$/i.test(o.color)||!Array.isArray(o.size)||o.size.length!==3||o.size.some(v=>!Number.isFinite(v)||v<.001||v>30)||!Array.isArray(o.pos)||o.pos.length!==3||o.pos.some(v=>!Number.isFinite(v)||Math.abs(v)>30)||!Number.isFinite(o.rotation)||Math.abs(o.rotation)>360||!Number.isFinite(o.roughness)||o.roughness<0||o.roughness>1||!Number.isFinite(o.repeat)||o.repeat<1||o.repeat>12)throw Error('Loyihada yaroqsiz qiymat bor.');if(o.source&&!templates.has(o.source))throw Error('Noma’lum model qismi');ids.add(o.id);return {source:o.source||null,original:!!o.original,tint:!!o.tint,roughnessOverride:!!o.roughnessOverride,id:o.id,name:o.name,room:o.room,size:[...o.size],pos:[...o.pos],material:o.material,color:o.color,roughness:o.roughness,repeat:o.repeat,rotation:o.rotation,roof:!!o.roof,kind:o.kind==='door'||o.kind==='window'?o.kind:null,open:!!o.open,wall:Number.isInteger(o.wall)?o.wall:undefined}})}
 function frameObject(o){if(mode!=='orbit')return;const r=Math.max(...o.size);controls.target.set(...o.pos);camera.position.set(o.pos[0]+r*1.9,o.pos[1]+r*1.5,o.pos[2]+r*2.3);controls.update()}
 $('#import-model').onchange=async e=>{const files=e.target.files;if(!files.length)return;status('Model o‘qilmoqda…');
  try{const {root,size,name}=await parseModelFiles(files),source='import:'+crypto.randomUUID();templates.set(source,normalise(root));
@@ -120,7 +200,9 @@ $('#import-model').onchange=async e=>{const files=e.target.files;if(!files.lengt
  }catch(err){status('Model yuklanmadi: '+err.message)}
  e.target.value='';
 };
-$('#load').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>2000000)throw Error('Fayl 2 MB dan katta.');const next=validProject(JSON.parse(await f.text()));remember();objects=next;selectedId=objects[0].id;rebuild();status('Loyiha ochildi')}catch(err){status('Ochilmadi: '+err.message)}e.target.value=''};
+$('#load').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>2000000)throw Error('Fayl 2 MB dan katta.');const data=JSON.parse(await f.text()),next=validProject(data);remember();objects=next;
+  if(data.plan&&Array.isArray(data.plan.nodes)&&Array.isArray(data.plan.edges)){plan.nodes=data.plan.nodes;plan.edges=data.plan.edges;plan.openings=data.plan.openings||[]}
+  selectedId=objects[0].id;rebuild();status('Loyiha ochildi')}catch(err){status('Ochilmadi: '+err.message)}e.target.value=''};
 new ResizeObserver(()=>{const {width,height}=viewport.getBoundingClientRect();renderer.setSize(width,height);composer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();dirty=true}).observe(viewport);
 let previous=performance.now();
 function frame(now){const dt=Math.min((now-previous)/1000,.05);previous=now;
@@ -131,7 +213,7 @@ function frame(now){const dt=Math.min((now-previous)/1000,.05);previous=now;
  if(dirty){if(shadowDirty){sun.shadow.needsUpdate=true;shadowDirty=false}composer.render();dirty=false}
  requestAnimationFrame(frame)}
 rebuild();for(const o of objects)if(o.kind==='door')doorBase.set(o.id,{pos:[...o.pos],rotation:o.rotation});requestAnimationFrame(frame);
-window.__uy={THREE,scene,camera,renderer,composer,meshes,group,toggleDoor,stepDoor,move,get objects(){return objects},get doorAnim(){return doorAnim},get mode(){return mode},get colliders(){return colliders},set collisionOn(v){collisionOn=v}};
+window.__uy={THREE,scene,camera,renderer,composer,meshes,group,toggleDoor,stepDoor,move,plan,applyPlan,snapToWall,rebuild,get selectedId(){return selectedId},set selectedId(v){selectedId=v},get objects(){return objects},get doorAnim(){return doorAnim},get mode(){return mode},get colliders(){return colliders},set collisionOn(v){collisionOn=v}};
 renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();status('3D ulanishi uzildi. Sahifani yangilang; saqlanmagan o‘zgarishlar yo‘qolishi mumkin.')});
 // Optional agent-facing interface uses exactly the same editor actions.
 const mc=document.modelContext,lifecycle=new AbortController();
